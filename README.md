@@ -80,8 +80,8 @@ libraries/{libraryId}
 
 1. **Clone the repo**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/gm_archive.git
-   cd gm_archive
+   git clone https://github.com/Tunahanekemen/GM-Archive.git
+   cd GM-Archive
    ```
 
 2. **Configure Firebase**
