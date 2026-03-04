@@ -7,6 +7,7 @@ import '../models/library.dart';
 import '../main.dart';
 import '../services/library_service.dart';
 import '../widgets/add_bookmark_dialog.dart';
+import '../widgets/bookmark_thumbnail.dart';
 import 'player_screen.dart';
 import 'folder_screen.dart';
 import 'setup_screen.dart';
@@ -1015,7 +1016,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (thumbs.length == 1) {
       return thumbs[0].thumbnailUrl.isNotEmpty
-          ? Image.network(thumbs[0].thumbnailUrl, fit: BoxFit.cover)
+          ? BookmarkThumbnail(bookmark: thumbs[0])
           : Container(
               color: Colors.grey[900],
               child: const Center(
@@ -1031,7 +1032,7 @@ class _HomeScreenState extends State<HomeScreen> {
       physics: const NeverScrollableScrollPhysics(),
       children: List.generate(4, (i) {
         if (i < thumbs.length && thumbs[i].thumbnailUrl.isNotEmpty) {
-          return Image.network(thumbs[i].thumbnailUrl, fit: BoxFit.cover);
+          return BookmarkThumbnail(bookmark: thumbs[i]);
         }
         return Container(color: Colors.grey[850]);
       }),
@@ -1063,7 +1064,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: bookmark.thumbnailUrl.isNotEmpty
-                  ? Image.network(bookmark.thumbnailUrl, fit: BoxFit.cover)
+                  ? BookmarkThumbnail(bookmark: bookmark)
                   : Container(
                       color: Colors.grey[900],
                       child: const Center(
@@ -1129,24 +1130,7 @@ class _HomeScreenState extends State<HomeScreen> {
           fit: StackFit.expand,
           children: [
             bookmark.thumbnailUrl.isNotEmpty
-                ? Image.network(
-                    bookmark.thumbnailUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: Colors.grey[900],
-                      child: Center(
-                        child: Icon(
-                           bookmark.platform == PlatformType.instagram
-                               ? Icons.camera_alt
-                               : bookmark.platform == PlatformType.twitter
-                                   ? FontAwesomeIcons.xTwitter
-                                   : Icons.video_library,
-                           size: 50,
-                           color: Colors.white24,
-                         ),
-                      ),
-                    ),
-                  )
+                ? BookmarkThumbnail(bookmark: bookmark)
                 : Container(
                     color: Colors.grey[900],
                     child: Center(

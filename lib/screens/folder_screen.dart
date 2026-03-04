@@ -3,6 +3,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../models/bookmark.dart';
 import '../models/folder.dart';
 import '../main.dart';
+import '../widgets/bookmark_thumbnail.dart';
 import 'player_screen.dart';
 
 class FolderScreen extends StatefulWidget {
@@ -178,23 +179,7 @@ class _FolderScreenState extends State<FolderScreen> {
                     fit: StackFit.expand,
                     children: [
                       bookmark.thumbnailUrl.isNotEmpty
-                          ? Image.network(
-                              bookmark.thumbnailUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Container(
-                                    color: Colors.grey[900],
-                                    child: Center(
-                                      child: Icon(
-                                        bookmark.platform == PlatformType.instagram
-                                            ? Icons.camera_alt
-                                            : Icons.video_library,
-                                        size: 50,
-                                        color: Colors.white24,
-                                      ),
-                                    ),
-                                  ),
-                            )
+                          ? BookmarkThumbnail(bookmark: bookmark)
                           : Container(
                               color: Colors.grey[900],
                               child: Center(

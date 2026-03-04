@@ -46,6 +46,19 @@ class DatabaseService {
     }
   }
 
+  Future<void> updateBookmarkMediaUrls(String id, String thumbnailUrl, {String? videoDirectUrl}) async {
+    if (isReadOnly) return;
+    try {
+      final Map<String, dynamic> updates = {'thumbnailUrl': thumbnailUrl};
+      if (videoDirectUrl != null && videoDirectUrl.isNotEmpty) {
+        updates['videoDirectUrl'] = videoDirectUrl;
+      }
+      await _db.collection(collectionPath).doc(id).update(updates);
+    } catch (e) {
+      debugPrint('Error updating media urls: $e');
+    }
+  }
+
   Stream<List<Bookmark>> getBookmarks() {
     return _db.collection(collectionPath)
         .orderBy('addedAt', descending: true)

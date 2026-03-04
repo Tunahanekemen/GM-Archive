@@ -11,6 +11,7 @@ import 'package:open_filex/open_filex.dart';
 import '../models/bookmark.dart';
 import '../main.dart';
 import '../services/instagram_api_service.dart';
+import '../services/ig_metadata_extractor.dart';
 
 class PlayerScreen extends StatefulWidget {
   final Bookmark bookmark;
@@ -27,6 +28,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isLoading = true;
   bool _isPlaying = false;
   String? _errorMessage;
+  bool _isRefreshing = false;
+  int _retryCount = 0;
   final _dbService = globalDbService;
   late String _currentTitle;
   late String? _customTitle;
@@ -77,18 +80,65 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (videoUrl != null && videoUrl.isNotEmpty) {
         _initVideoPlayer(videoUrl);
       } else {
+        _attemptWebViewRefresh();
+      }
+    } catch (e) {
+      _attemptWebViewRefresh();
+    }
+  }
+
+  Future<void> _attemptWebViewRefresh() async {
+    if (_isRefreshing || _retryCount >= 2) return;
+
+    if (mounted) {
+      setState(() {
+        _isRefreshing = true;
+        _errorMessage = 'Video URL yenileniyor...';
+      });
+    }
+
+    try {
+      debugPrint('Attempting to refresh Instagram video URL via WebView...');
+      _retryCount++;
+      
+      final newData = await InstagramMetadataExtractor.extract(
+        context,
+        widget.bookmark.videoId,
+        widget.bookmark.originalUrl,
+      );
+
+      final newVideo = newData['videoDirectUrl'];
+      final newThumb = newData['thumbnailUrl'];
+
+      if (newVideo != null && newVideo.isNotEmpty) {
+        debugPrint('Successfully refreshed video URL');
+        
+        await _dbService.updateBookmarkMediaUrls(
+          widget.bookmark.id,
+          newThumb ?? widget.bookmark.thumbnailUrl,
+          videoDirectUrl: newVideo,
+        );
+
         if (mounted) {
           setState(() {
-            _isLoading = false;
-            _errorMessage = 'Video URL\'si bulunamadı.';
+            _isRefreshing = false;
+            _errorMessage = null;
+          });
+          _initVideoPlayer(newVideo);
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isRefreshing = false;
+            _errorMessage = 'Güncel video URL\'si bulunamadı.';
           });
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isLoading = false;
-          _errorMessage = 'Bağlantı hatası: $e';
+          _isRefreshing = false;
+          _errorMessage = 'Yenileme hatası: $e';
         });
       }
     }
@@ -103,11 +153,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
           setState(() { _isLoading = false; });
         }
       }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Video yüklenemedi: $e';
-          });
+        debugPrint('Video player init error: $e');
+        if (widget.bookmark.platform == PlatformType.instagram && _retryCount < 2) {
+          // If Instagram video playback fails, it's likely expired. Try to refresh.
+          debugPrint('Instagram video expired. Attempting refresh...');
+          if (mounted) {
+            setState(() {
+              _videoController?.dispose();
+              _videoController = null;
+            });
+            _attemptWebViewRefresh();
+          }
+        } else {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = 'Video yüklenemedi: $e';
+            });
+          }
         }
       });
   }

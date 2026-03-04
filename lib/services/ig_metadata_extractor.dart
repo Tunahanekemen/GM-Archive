@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:async';
 
-/// Extracts Instagram metadata (thumbnail, caption) by loading the embed
+/// Extracts Instagram metadata (thumbnail, caption, videoUrl) by loading the embed
 /// page in a hidden WebView and extracting data via JavaScript after render.
 class InstagramMetadataExtractor {
   /// Extracts metadata from an Instagram post/reel by loading its embed page.
-  /// Returns a map with 'title', 'description', and 'thumbnailUrl'.
+  /// Returns a map with 'title', 'description', 'thumbnailUrl', and 'videoDirectUrl'.
   /// Must be called from a widget context (needs WebView).
   static Future<Map<String, String>> extract(
     BuildContext context,
@@ -30,12 +30,13 @@ class InstagramMetadataExtractor {
     Overlay.of(context).insert(overlay);
     
     // Timeout after 8 seconds
-    Timer(const Duration(seconds: 8), () {
+    Timer(const Duration(seconds: 12), () {
       if (!completer.isCompleted) {
         completer.complete({
           'title': 'Instagram Gönderi',
           'description': '',
           'thumbnailUrl': '',
+          'videoDirectUrl': '',
         });
       }
     });
@@ -84,12 +85,14 @@ class _HiddenWebViewState extends State<_HiddenWebView> {
                 'title': parts.length > 0 && parts[0].isNotEmpty ? parts[0] : 'Instagram Gönderi',
                 'description': parts.length > 1 ? parts[1] : '',
                 'thumbnailUrl': parts.length > 2 ? parts[2] : '',
+                'videoDirectUrl': parts.length > 3 ? parts[3] : '',
               });
             } catch (e) {
               widget.onDataExtracted({
                 'title': 'Instagram Gönderi',
                 'description': '',
                 'thumbnailUrl': '',
+                'videoDirectUrl': '',
               });
             }
           }
@@ -114,6 +117,7 @@ class _HiddenWebViewState extends State<_HiddenWebView> {
         var title = '';
         var caption = '';
         var thumbnail = '';
+        var videoUrl = '';
         
         // Try to get the caption from the embed
         var captionEl = document.querySelector('.Caption');
@@ -127,21 +131,24 @@ class _HiddenWebViewState extends State<_HiddenWebView> {
           title = userEl.textContent.trim();
         }
         
-        // Try to find any image (thumbnail)
-        var imgs = document.querySelectorAll('img');
-        for (var i = 0; i < imgs.length; i++) {
-          var src = imgs[i].src;
-          if (src && (src.includes('cdninstagram') || src.includes('scontent') || src.includes('fbcdn'))) {
-            thumbnail = src;
-            break;
+        // Find video URL
+        var video = document.querySelector('video');
+        if (video) {
+          videoUrl = video.src || '';
+          if (video.poster) {
+            thumbnail = video.poster;
           }
         }
         
-        // Also try video poster
+        // Try to find any alternative image (thumbnail)
         if (!thumbnail) {
-          var video = document.querySelector('video');
-          if (video && video.poster) {
-            thumbnail = video.poster;
+          var imgs = document.querySelectorAll('img');
+          for (var i = 0; i < imgs.length; i++) {
+            var src = imgs[i].src;
+            if (src && (src.includes('cdninstagram') || src.includes('scontent') || src.includes('fbcdn'))) {
+              thumbnail = src;
+              break;
+            }
           }
         }
         
@@ -157,7 +164,7 @@ class _HiddenWebViewState extends State<_HiddenWebView> {
         }
         
         // Send back to Dart
-        MetadataChannel.postMessage(title + '|||' + caption + '|||' + thumbnail);
+        MetadataChannel.postMessage(title + '|||' + caption + '|||' + thumbnail + '|||' + videoUrl);
       })();
     ''');
   }
