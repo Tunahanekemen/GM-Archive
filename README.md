@@ -24,7 +24,7 @@ Built with Firebase Firestore for real-time sync across devices, with a multi-li
   <img src="screenshots/share.png" width="200" alt="Share Dialog"/>
 </p>
 
-> Add your own screenshots to a `screenshots/` folder in the repo root.
+
 
 ## Architecture
 
