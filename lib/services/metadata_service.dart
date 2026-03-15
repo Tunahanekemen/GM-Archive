@@ -19,7 +19,7 @@ class MetadataFetcher {
         final ytApiUrl = 'https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${parsed.videoId}&key=${ApiKeys.youtubeDataApiKey}';
         
         try {
-          var response = await http.get(Uri.parse(ytApiUrl));
+          var response = await http.get(Uri.parse(ytApiUrl)).timeout(const Duration(seconds: 10));
           if (response.statusCode == 200) {
             var jsonResponse = jsonDecode(response.body);
             if (jsonResponse['items'] != null && jsonResponse['items'].isNotEmpty) {

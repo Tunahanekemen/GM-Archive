@@ -7,11 +7,13 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 import 'dart:io';
+import 'dart:io';
 import 'package:open_filex/open_filex.dart';
 import '../models/bookmark.dart';
 import '../main.dart';
 import '../services/instagram_api_service.dart';
 import '../services/ig_metadata_extractor.dart';
+import '../services/local_storage_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final Bookmark bookmark;
@@ -33,34 +35,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final _dbService = globalDbService;
   late String _currentTitle;
   late String? _customTitle;
+  bool _isLocalFile = false;
+  String? _localFilePath;
 
   @override
   void initState() {
     super.initState();
 
-    if (widget.bookmark.platform == PlatformType.youtube) {
-      _ytController = YoutubePlayerController(
-        initialVideoId: widget.bookmark.videoId,
-        flags: const YoutubePlayerFlags(
-          autoPlay: false,
-          mute: false,
-        ),
-      );
-      setState(() { _isLoading = false; });
-    } else if (widget.bookmark.platform == PlatformType.instagram) {
-      _fetchInstagramVideoUrl();
-    } else if (widget.bookmark.platform == PlatformType.twitter) {
-      // Twitter: if video URL exists, init video player; otherwise show static tweet
-      final videoUrl = widget.bookmark.videoDirectUrl;
-      if (videoUrl != null && videoUrl.isNotEmpty) {
-        _initVideoPlayer(videoUrl);
-      } else {
-        setState(() { _isLoading = false; });
-      }
-    }
-    
     _currentTitle = widget.bookmark.title;
     _customTitle = widget.bookmark.customTitle;
+
+    _initializePlayback();
+  }
+
+  Future<void> _initializePlayback() async {
+    // 1. Önce Lokal Dosya Kontrolü Yap
+    final localPath = await LocalStorageService.findLocalVideo(
+      widget.bookmark.platform,
+      widget.bookmark.videoId,
+    );
+
+    if (localPath != null) {
+      debugPrint('Playing from local file: $localPath');
+      // Dosya locally bulunmuşsa, platform ne olursa olsun lokal dosya oynat
+      if (mounted) {
+        setState(() {
+          _isLocalFile = true;
+          _localFilePath = localPath;
+        });
+      }
+      await _initLocalVideoPlayer(localPath);
+      return;
+    }
+
+    // 2. Lokal dosya yoksa online devam et
+    if (widget.bookmark.platform == PlatformType.youtube) {
+      if (mounted) {
+        setState(() {
+          _ytController = YoutubePlayerController(
+            initialVideoId: widget.bookmark.videoId,
+            flags: const YoutubePlayerFlags(
+              autoPlay: false,
+              mute: false,
+            ),
+          );
+          _isLoading = false;
+        });
+      }
+    } else if (widget.bookmark.platform == PlatformType.instagram) {
+      await _fetchInstagramVideoUrl();
+    } else if (widget.bookmark.platform == PlatformType.twitter) {
+      final videoUrl = widget.bookmark.videoDirectUrl;
+      if (videoUrl != null && videoUrl.isNotEmpty) {
+        await _initVideoPlayer(videoUrl);
+      } else {
+        if (mounted) setState(() { _isLoading = false; });
+      }
+    }
   }
 
   Future<void> _fetchInstagramVideoUrl() async {
@@ -93,7 +124,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (mounted) {
       setState(() {
         _isRefreshing = true;
-        _errorMessage = 'Video URL yenileniyor...';
+        _isLoading = true;
+        _errorMessage = null;
       });
     }
 
@@ -130,6 +162,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (mounted) {
           setState(() {
             _isRefreshing = false;
+            _isLoading = false;
             _errorMessage = 'Güncel video URL\'si bulunamadı.';
           });
         }
@@ -138,41 +171,72 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted) {
         setState(() {
           _isRefreshing = false;
+          _isLoading = false;
           _errorMessage = 'Yenileme hatası: $e';
         });
       }
     }
   }
 
-  void _initVideoPlayer(String videoUrl) {
+  Future<void> _initVideoPlayer(String videoUrl) async {
     debugPrint('Video URL: $videoUrl');
-    _videoController = VideoPlayerController.networkUrl(Uri.parse(videoUrl))
-      ..initialize().then((_) {
+    
+    if (mounted) {
+      setState(() { _isLoading = true; _errorMessage = null; });
+    }
+    
+    _videoController = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+    
+    try {
+      await _videoController!.initialize().timeout(const Duration(seconds: 15));
+      if (mounted) {
+        _videoController!.setVolume(1.0);
+        setState(() { _isLoading = false; });
+      }
+    } catch (e) {
+      debugPrint('Video player init error/timeout: $e');
+      if (widget.bookmark.platform == PlatformType.instagram && _retryCount < 2) {
+        debugPrint('Instagram video expired. Attempting refresh...');
         if (mounted) {
-          _videoController!.setVolume(1.0);
-          setState(() { _isLoading = false; });
+          setState(() {
+            _videoController?.dispose();
+            _videoController = null;
+          });
+          _attemptWebViewRefresh();
         }
-      }).catchError((e) {
-        debugPrint('Video player init error: $e');
-        if (widget.bookmark.platform == PlatformType.instagram && _retryCount < 2) {
-          // If Instagram video playback fails, it's likely expired. Try to refresh.
-          debugPrint('Instagram video expired. Attempting refresh...');
-          if (mounted) {
-            setState(() {
-              _videoController?.dispose();
-              _videoController = null;
-            });
-            _attemptWebViewRefresh();
-          }
-        } else {
-          if (mounted) {
-            setState(() {
-              _isLoading = false;
-              _errorMessage = 'Video yüklenemedi: $e';
-            });
-          }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'Video yüklenemedi (zaman aşımı veya hata). URL süresi dolmuş olabilir.';
+          });
         }
-      });
+      }
+    }
+  }
+
+  Future<void> _initLocalVideoPlayer(String path) async {
+    if (mounted) {
+      setState(() { _isLoading = true; _errorMessage = null; });
+    }
+    
+    _videoController = VideoPlayerController.file(File(path));
+    
+    try {
+      await _videoController!.initialize().timeout(const Duration(seconds: 15));
+      if (mounted) {
+        _videoController!.setVolume(1.0);
+        setState(() { _isLoading = false; });
+      }
+    } catch (e) {
+      debugPrint('Local video player init error: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Yerel video dosyası bozuk veya silinmiş. Tekrar indirmeyi veya oynamayı deneyin.';
+        });
+      }
+    }
   }
 
   @override
@@ -268,7 +332,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             );
           }
 
-          final fileName = 'youtube_${widget.bookmark.videoId}_${selected.videoQualityLabel}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+          final fileName = 'youtube_${widget.bookmark.videoId}.mp4';
           final filePath = '${dir.path}/$fileName';
 
           final stream = ytClient.videos.streamsClient.get(selected);
@@ -277,6 +341,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           await stream.pipe(fileStream);
           await fileStream.flush();
           await fileStream.close();
+          await _downloadThumbnail(fileName, dir);
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -305,10 +370,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
           return;
         }
-        final fileName = 'instagram_${widget.bookmark.videoId}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+        final fileName = 'instagram_${widget.bookmark.videoId}.mp4';
         final filePath = '${dir.path}/$fileName';
         final response = await http.get(Uri.parse(videoUrl));
         await File(filePath).writeAsBytes(response.bodyBytes);
+        await _downloadThumbnail(fileName, dir);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -334,10 +400,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
           return;
         }
-        final fileName = 'x_${widget.bookmark.videoId}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+        final fileName = 'x_${widget.bookmark.videoId}.mp4';
         final filePath = '${dir.path}/$fileName';
         final response = await http.get(Uri.parse(videoUrl));
         await File(filePath).writeAsBytes(response.bodyBytes);
+        await _downloadThumbnail(fileName, dir);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -362,18 +429,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Future<void> _downloadThumbnail(String baseFileName, Directory dir) async {
+    final url = widget.bookmark.thumbnailUrl;
+    if (url.isEmpty) return;
+    try {
+      final thumbName = '${baseFileName.replaceAll('.mp4', '')}_thumb.jpg';
+      final thumbPath = '${dir.path}/$thumbName';
+      final response = await http.get(Uri.parse(url));
+      await File(thumbPath).writeAsBytes(response.bodyBytes);
+      debugPrint('Thumbnail downloaded: $thumbName');
+    } catch (e) {
+      debugPrint('Failed to download thumbnail: $e');
+    }
+  }
+
   Widget _buildInstagramPlayer() {
     if (_isLoading) {
       return Container(
         height: MediaQuery.of(context).size.height * 0.6,
         color: Colors.black,
-        child: const Center(
+        child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(height: 16),
-              Text('Video yükleniyor...', style: TextStyle(color: Colors.white70)),
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 16),
+              Text(
+                _isRefreshing ? 'Alternatif link aranıyor...' : 'Video yükleniyor...', 
+                style: const TextStyle(color: Colors.white70),
+              ),
             ],
           ),
         ),
@@ -456,6 +540,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildPlayer() {
+    // Eğper dosya lokaldeyse (Instagram, Twitter veya Youtube fark etmeksizin)
+    if (_isLocalFile && _videoController != null) {
+      return _buildInstagramPlayer(); // Ortak UI'ı (play butonu, progress bar) kullan
+    }
+
     if (widget.bookmark.platform == PlatformType.youtube && _ytController != null) {
       if (widget.bookmark.type == VideoType.shorts) {
         return Center(
@@ -663,15 +752,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.bookmark.platform.name.toUpperCase()),
+        title: Row(
+          children: [
+            Text(widget.bookmark.platform.name.toUpperCase()),
+            if (_isLocalFile) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.green),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.sd_storage, size: 12, color: Colors.greenAccent),
+                    SizedBox(width: 4),
+                    Text('YEREL', style: TextStyle(fontSize: 10, color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
             tooltip: 'Paylaş',
-            onPressed: _shareLink,
+            onPressed: () {
+              if (_isLocalFile && _localFilePath != null && File(_localFilePath!).existsSync()) {
+                // Eğer yerel dosya varsa, orijinal URL'yi ve dosyanın yüklü olduğunu belirt. Dosyayı istersen `SharePlus.shareXFiles` ile fiziksel paylaşabiliriz ama link şimdilik yeterli.
+                _shareLink();
+              } else {
+                _shareLink();
+              }
+            },
           ),
-          if (widget.bookmark.videoDirectUrl != null && widget.bookmark.videoDirectUrl!.isNotEmpty ||
-              widget.bookmark.platform == PlatformType.youtube)
+          if (!_isLocalFile &&
+              (widget.bookmark.videoDirectUrl != null && widget.bookmark.videoDirectUrl!.isNotEmpty ||
+               widget.bookmark.platform == PlatformType.youtube))
             IconButton(
               icon: const Icon(Icons.download),
               tooltip: 'İndir',

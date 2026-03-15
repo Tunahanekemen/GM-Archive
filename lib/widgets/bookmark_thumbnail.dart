@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/bookmark.dart';
 import '../services/db_service.dart';
 import '../services/ig_metadata_extractor.dart';
+import '../services/local_storage_service.dart';
 import '../main.dart'; // for globalDbService
 
 class BookmarkThumbnail extends StatefulWidget {
@@ -22,11 +24,25 @@ class _BookmarkThumbnailState extends State<BookmarkThumbnail> {
   late String _currentUrl;
   bool _isRefreshing = false;
   int _retryCount = 0;
+  String? _localThumbPath;
 
   @override
   void initState() {
     super.initState();
     _currentUrl = widget.bookmark.thumbnailUrl;
+    _checkLocalThumbnail();
+  }
+
+  Future<void> _checkLocalThumbnail() async {
+    final path = await LocalStorageService.findLocalThumbnail(
+      widget.bookmark.platform,
+      widget.bookmark.videoId,
+    );
+    if (path != null && mounted) {
+      setState(() {
+        _localThumbPath = path;
+      });
+    }
   }
 
   @override
@@ -36,7 +52,9 @@ class _BookmarkThumbnailState extends State<BookmarkThumbnail> {
       setState(() {
         _currentUrl = widget.bookmark.thumbnailUrl;
         _retryCount = 0; // Reset retry on new url 
+        _localThumbPath = null;
       });
+      _checkLocalThumbnail();
     }
   }
 
@@ -89,6 +107,20 @@ class _BookmarkThumbnailState extends State<BookmarkThumbnail> {
 
   @override
   Widget build(BuildContext context) {
+    if (_localThumbPath != null) {
+      return Image.file(
+        File(_localThumbPath!),
+        fit: widget.fit,
+        errorBuilder: (context, error, stackTrace) {
+          // If local file fails (e.g. deleted), fallback to network flow
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _localThumbPath = null);
+          });
+          return const SizedBox();
+        },
+      );
+    }
+
     if (_currentUrl.isEmpty) {
       return Container(
         color: Colors.grey[900],
@@ -114,6 +146,25 @@ class _BookmarkThumbnailState extends State<BookmarkThumbnail> {
     return Image.network(
       _currentUrl,
       fit: widget.fit,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          color: Colors.grey[900],
+          child: Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded /
+                        loadingProgress.expectedTotalBytes!
+                    : null,
+              ),
+            ),
+          ),
+        );
+      },
       errorBuilder: (context, error, stackTrace) {
         // Automatically attempt to refresh if we haven't maxed out retries
         if (widget.bookmark.platform == PlatformType.instagram && _retryCount < 2) {

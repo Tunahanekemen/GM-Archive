@@ -34,7 +34,7 @@ class InstagramApiService {
         'Content-Type': 'application/json',
       },
       body: jsonEncode({'url': 'https://www.instagram.com/reel/$shortcode/'}),
-    );
+    ).timeout(const Duration(seconds: 10));
 
     if (response.statusCode == 429) return null;
     if (response.statusCode != 200) return null;
@@ -50,7 +50,7 @@ class InstagramApiService {
         'x-rapidapi-host': _api2Host,
         'x-rapidapi-key': ApiKeys.rapidApiKey,
       },
-    );
+    ).timeout(const Duration(seconds: 10));
 
     if (response.statusCode == 429) return null;
     if (response.statusCode != 200) return null;

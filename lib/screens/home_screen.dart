@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _searchQuery = '';
   bool _sortDescending = true;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   List<Library> _libraries = [];
   Library? _activeLibrary;
@@ -61,14 +62,23 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  void _showAddDialog(BuildContext context) {
-    showDialog(
+  void _showAddDialog(BuildContext context) async {
+    final result = await showDialog<bool>(
       context: context,
       builder: (context) => const AddBookmarkDialog(),
     );
+    // Yeni video eklendiyse en üste scroll yap
+    if (result == true && _scrollController.hasClients) {
+      _scrollController.animateTo(
+        0.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   void _onItemTapped(int index) {
@@ -839,6 +849,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
 
                 return GridView.builder(
+                  key: const PageStorageKey('home_grid'),
+                  controller: _scrollController,
                   padding: const EdgeInsets.all(8.0),
                   gridDelegate:
                       const SliverGridDelegateWithFixedCrossAxisCount(
